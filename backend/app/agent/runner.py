@@ -31,6 +31,7 @@ from app.agent.tools.customer_tools import get_customer_intelligence
 from app.agent.tools.opportunity_tools import detect_opportunities
 from app.agent.tools.event_tools import get_business_event
 from app.agent.tools.simulation_tools import simulate_business_action
+from app.agent.guardrails import check_guardrails
 from app.services import redis_service
 
 load_dotenv()
@@ -226,6 +227,18 @@ class AgentRunner:
         
         # Determine exact target language (explicit request takes priority over merchant default)
         target_lang = language or merchant_ctx.get("preferred_language") or merchant_ctx.get("language") or "English"
+
+        # Check AI Guardrails first
+        is_allowed, refusal, violation_cat = check_guardrails(message, language=str(target_lang))
+        if not is_allowed and refusal:
+            logger.warning(f"Guardrail intercepted message from merchant {merchant_id}: '{message[:60]}' | Violation: {violation_cat}")
+            save_conversation_turn(merchant_id, "agent", refusal)
+            return ChatResponse(
+                merchant_id=merchant_id,
+                response=refusal,
+                supporting_data={"guardrail_triggered": True, "violation_category": violation_cat},
+                suggested_action=None
+            )
 
         prompt = CHAT_INVESTIGATION_PROMPT.format(
             merchant_id=merchant_id,

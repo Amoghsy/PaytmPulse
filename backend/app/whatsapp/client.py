@@ -50,9 +50,10 @@ class WhatsAppClient:
         phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip() or self._phone_number_id or ""
         version = os.getenv("WHATSAPP_API_VERSION", "").strip() or self._api_version or "v25.0"
         
-        env_mock = os.getenv("WHATSAPP_MOCK_MODE", "false").strip().lower() in ("true", "1", "yes")
-        has_creds = bool(token and phone_id and len(token) > 20)
-        is_mock = False if (has_creds and not env_mock) else (self._mock_mode if self._mock_mode is not None else True)
+        if self._mock_mode is not None:
+            is_mock = self._mock_mode
+        else:
+            is_mock = env_mock or not has_creds
         
         base_url = f"https://graph.facebook.com/{version}/{phone_id}"
         headers = {

@@ -571,14 +571,15 @@ class MessageHandler:
         )
 
         # Send response to WhatsApp
-        whatsapp_client.send_text_message(recipient_phone=merchant.phone, text=response_text)
+        target_phone = parsed.sender_phone or merchant.phone
+        whatsapp_client.send_text_message(recipient_phone=target_phone, text=response_text)
 
         self.notifications._log_message(
             merchant_id=merchant.id,
             direction=MessageDirection.OUTBOUND,
             msg_type=MessageType.TEXT,
             content=response_text,
-            recipient_phone=merchant.phone,
+            recipient_phone=target_phone,
             language=merchant.language
         )
 
@@ -586,5 +587,7 @@ class MessageHandler:
             "status": "TEXT_PROCESSED",
             "merchant_id": merchant.id,
             "response_text": response_text,
-            "suggested_action": agent_resp.suggested_action
+            "suggested_action": agent_resp.suggested_action,
+            "supporting_data": agent_resp.supporting_data,
+            "guardrail_triggered": agent_resp.supporting_data.get("guardrail_triggered", False)
         }
