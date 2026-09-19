@@ -490,350 +490,78 @@ class AgentRunner:
         message: str,
         merchant_ctx: dict
     ) -> ChatResponse:
-        """Deterministic conversational answer grounded in live store telemetry with ADK structured reasoning."""
-        msg = message.lower()
+        """
+        Dynamic fallback synthesizer grounded in live store telemetry.
+        Invoked only when the primary Google ADK / Gemini Agent is offline or unreachable.
+        Directly queries live database metrics rather than using static rule-based templates.
+        """
         shop_name = merchant_ctx.get("shop_name", "your store")
+        
+        # Pull live operational telemetry
+        sales_data = get_sales_analysis(merchant_id, db=self.db)
+        stockouts_data = get_all_stockout_risks(merchant_id, db=self.db)
+        customer_data = get_customer_intelligence(merchant_id, db=self.db)
+        opportunities_data = detect_opportunities(merchant_id, db=self.db)
 
-        # 1. Evening Sales & Growth Strategy (High Priority)
-        if "evening" in msg or "increase" in msg or "boost" in msg or "grow sales" in msg or "combo" in msg or "bundle" in msg:
-            sales_data = get_sales_analysis(merchant_id, db=self.db)
-            top_prods = sales_data.get("top_products", [])
-            top_p_name = top_prods[0].get("product_name") if top_prods else "Cold Drinks & Snacks"
-            runner_up = top_prods[1].get("product_name") if len(top_prods) > 1 else "Biscuits & Savories"
-            avg_daily = sales_data.get("average_daily_sales", 4740.0)
-            
-            est_low = int(round(avg_daily * 0.25 / 100) * 100)
-            est_high = int(round(avg_daily * 0.38 / 100) * 100)
-            if est_low < 1000:
-                est_low = 1200
-                est_high = 1600
+        today_s = sales_data.get("today_sales", 0.0)
+        avg_s = sales_data.get("average_daily_sales", 0.0)
+        growth = sales_data.get("growth_percentage", 0.0)
+        at_risk_list = stockouts_data.get("at_risk_products", [])
+        at_risk_count = len(at_risk_list)
+        opps = opportunities_data.get("opportunities", [])
+        cust_summary = customer_data.get("segments_summary", {})
+        at_risk_cust = cust_summary.get("AT_RISK", 0) + cust_summary.get("INACTIVE", 0)
 
-            resp = (
-                f"📈 **Evening Sales Opportunity**\n\n"
-                f"**Insight:**\n"
-                f"Your store footfall between 6:00 PM – 9:00 PM accounts for peak daily customer velocity, but average basket size is currently below full potential.\n\n"
-                f"**Evidence:**\n"
-                f"• Top evening demand drivers: '{top_p_name}' and '{runner_up}'\n"
-                f"• Over 32% of evening shoppers buy beverage or snack items independently\n"
-                f"• Current inventory levels for fast-moving items are sufficient for an evening promotional push\n\n"
-                f"**Recommendation:**\n"
-                f"Create a special ₹99 Evening Combo offer (e.g. {top_p_name} + {runner_up} combo) active exclusively from 6:00 PM – 9:00 PM.\n\n"
-                f"**Expected Impact:**\n"
-                f"₹{est_low:,} – ₹{est_high:,} estimated incremental evening revenue (+18% basket conversion rate).\n\n"
-                f"**Next Best Action:**\n"
-                f"Tap **[Create Combo Offer]** in Decisions to broadcast this offer to regular shoppers."
-            )
-            return ChatResponse(
-                merchant_id=merchant_id,
-                response=resp,
-                supporting_data={"top_products": top_prods[:3], "estimated_impact": f"₹{est_low}-₹{est_high}"},
-                suggested_action="LAUNCH_PROMOTION"
-            )
+        # Construct dynamic store intelligence summary
+        bullet_points = [
+            f"• **Today's Sales:** ₹{today_s:,.2f} (Daily Average: ₹{avg_s:,.2f}, Trend: {growth:+0.1f}%)"
+        ]
 
-        # 2. Stockout & Inventory Depletion Risks
-        elif "run out" in msg or "stock" in msg or "inventory" in msg or "deplete" in msg:
-            stockouts_data = get_all_stockout_risks(merchant_id, db=self.db)
-            at_risk = stockouts_data.get("at_risk_products", [])
-            
-            if at_risk:
-                item = at_risk[0]
-                item_name = item.get("product_name", "Essential Product")
-                curr_stock = item.get("current_stock", 0)
-                hours_left = item.get("estimated_hours_to_stockout", 0.0)
-                unit_price = item.get("unit_price", 40.0)
-                prot_rev = max(400.0, curr_stock * unit_price * 1.5)
-
-                resp = (
-                    f"⚠️ **Stockout Risk Warning**\n\n"
-                    f"**Insight:**\n"
-                    f"Fast-moving inventory for '{item_name}' is critically depleted and will run out before peak demand ends.\n\n"
-                    f"**Evidence:**\n"
-                    f"• Current stock remaining: **{curr_stock} units**\n"
-                    f"• Projected stockout runway: **~{hours_left:.1f} hours** at current sales velocity\n"
-                    f"• High purchase frequency detected across recent transactions\n\n"
-                    f"**Recommendation:**\n"
-                    f"Place an immediate restock order of 30–50 units for {item_name} to maintain uninterrupted counter sales.\n\n"
-                    f"**Expected Impact:**\n"
-                    f"Protects approximately ₹{prot_rev:,.2f} in potential lost sales during peak business hours.\n\n"
-                    f"**Next Best Action:**\n"
-                    f"Tap **[Restock Product]** in Decisions to approve automated supplier dispatch."
-                )
-                action = "RESTOCK"
-            else:
-                resp = (
-                    f"✅ **Inventory Health Status**\n\n"
-                    f"**Insight:**\n"
-                    f"All catalog items have healthy stock levels with no imminent stockout risks detected for {shop_name}.\n\n"
-                    f"**Evidence:**\n"
-                    f"• Safety stock coverage across all categories is currently > 48 hours\n\n"
-                    f"**Recommendation:**\n"
-                    f"Continue regular daily inventory monitoring."
-                )
-                action = "MONITOR"
-
-            return ChatResponse(
-                merchant_id=merchant_id,
-                response=resp,
-                supporting_data={"at_risk_products": at_risk},
-                suggested_action=action
-            )
-
-        # 3. Customer Retention & At-Risk Customers
-        elif "customer" in msg or "inactive" in msg or "churn" in msg or "win back" in msg or "winback" in msg:
-            customer_data = get_customer_intelligence(merchant_id, db=self.db)
-            summary = customer_data.get("segments_summary", {})
-            total_c = customer_data.get("total_customers", 0)
-            at_risk_c = summary.get("AT_RISK", 0) + summary.get("INACTIVE", 0)
-            high_val_c = summary.get("HIGH_VALUE", 0)
-            
-            resp = (
-                f"👥 **Customer Retention Intelligence**\n\n"
-                f"**Insight:**\n"
-                f"Customer intelligence identified {at_risk_c} formerly frequent customers who have not visited in the last 14+ days.\n\n"
-                f"**Evidence:**\n"
-                f"• Total registered merchant customers: **{total_c}**\n"
-                f"• High-value regular shoppers: **{high_val_c}**\n"
-                f"• At-risk & inactive shoppers: **{at_risk_c}**\n\n"
-                f"**Recommendation:**\n"
-                f"Trigger an automated WhatsApp re-engagement message offering a ₹20 voucher on their next purchase above ₹150.\n\n"
-                f"**Expected Impact:**\n"
-                f"Estimated recovery of 4–7 repeat shoppers yielding ₹1,200 – ₹2,400 in incremental monthly spend.\n\n"
-                f"**Next Best Action:**\n"
-                f"Tap **[Customer Win-Back]** to dispatch personalized WhatsApp messages."
-            )
-            return ChatResponse(
-                merchant_id=merchant_id,
-                response=resp,
-                supporting_data={"segments_summary": summary, "total_customers": total_c},
-                suggested_action="CUSTOMER_WINBACK" if at_risk_c > 0 else None
-            )
-
-        # 4. Top Selling Products
-        elif "best" in msg or "top" in msg or "selling" in msg or "most" in msg or "product" in msg:
-            sales_data = get_sales_analysis(merchant_id, db=self.db)
-            top_prods = sales_data.get("top_products", [])
-            
-            if top_prods:
-                top_p = top_prods[0]
-                runner = top_prods[1] if len(top_prods) > 1 else None
-                
-                evidence_lines = [
-                    f"• Top performer: **{top_p.get('product_name')}** with **{top_p.get('units_sold')} units** sold (₹{top_p.get('revenue', 0.0):,.2f} revenue)"
-                ]
-                if runner:
-                    evidence_lines.append(
-                        f"• Runner-up: **{runner.get('product_name')}** with **{runner.get('units_sold')} units** sold (₹{runner.get('revenue', 0.0):,.2f} revenue)"
-                    )
-                evidence_text = "\n".join(evidence_lines)
-
-                resp = (
-                    f"🏆 **Top Performing Products**\n\n"
-                    f"**Insight:**\n"
-                    f"Revenue is strongly anchored in fast-moving essentials, driving high repeat transaction frequency.\n\n"
-                    f"**Evidence:**\n"
-                    f"{evidence_text}\n\n"
-                    f"**Recommendation:**\n"
-                    f"Place top sellers at eye-level front shelves and maintain a minimum 3-day safety stock buffer.\n\n"
-                    f"**Expected Impact:**\n"
-                    f"Ensures 100% availability during peak customer checkouts, eliminating lost sales."
-                )
-            else:
-                resp = (
-                    f"🏆 **Top Performing Products**\n\n"
-                    f"**Insight:**\n"
-                    f"Sales distribution is evenly balanced across your product catalog with healthy margin performance."
-                )
-
-            return ChatResponse(
-                merchant_id=merchant_id,
-                response=resp,
-                supporting_data={"top_products": top_prods[:3]},
-                suggested_action="MONITOR"
-            )
-
-        # 5. General Sales & Revenue Performance
-        elif "sales" in msg or "today" in msg or "doing" in msg or "revenue" in msg or "performance" in msg:
-            sales_data = get_sales_analysis(merchant_id, db=self.db)
-            today_s = sales_data.get("today_sales", 0.0)
-            avg_s = sales_data.get("average_daily_sales", 0.0)
-            total_30d = sales_data.get("last_30_days_sales", 0.0)
-            tx_count = sales_data.get("transaction_count", 0)
-            growth = sales_data.get("growth_percentage", 0.0)
-
-            today_line = f"• Today's live sales: **₹{today_s:,.2f}**\n" if today_s > 0 else ""
-
-            resp = (
-                f"📊 **Sales Performance Diagnosis**\n\n"
-                f"**Insight:**\n"
-                f"For **{shop_name}**, store performance shows a steady sales volume with positive growth momentum.\n\n"
-                f"**Evidence:**\n"
-                f"{today_line}"
-                f"• Average daily sales baseline: **₹{avg_s:,.2f}**\n"
-                f"• 30-day total sales: **₹{total_30d:,.2f}** across **{tx_count} transactions**\n"
-                f"• Growth trend: **{growth:+0.1f}%** compared to previous period\n\n"
-                f"**Recommendation:**\n"
-                f"Capitalize on peak 6:00 PM – 9:00 PM footfall with targeted beverage and snack pairings.\n\n"
-                f"**Expected Impact:**\n"
-                f"Projected 10–15% daily revenue lift through active basket upsell."
-            )
-            return ChatResponse(
-                merchant_id=merchant_id,
-                response=resp,
-                supporting_data={
-                    "today_sales": today_s,
-                    "average_daily_sales": avg_s,
-                    "last_30_days_sales": total_30d,
-                    "transaction_count": tx_count,
-                    "growth_percentage": growth
-                },
-                suggested_action="MONITOR"
-            )
-
-        # 6. Proactive Business Opportunities
-        elif "opportunity" in msg or "grow" in msg or "attention" in msg:
-            opportunities_data = detect_opportunities(merchant_id, db=self.db)
-            opps = opportunities_data.get("opportunities", [])
-            if opps:
-                top_o = opps[0]
-                resp = (
-                    f"💡 **Proactive Growth Opportunity**\n\n"
-                    f"**Insight:**\n"
-                    f"Paytm Pulse detected an actionable business opportunity for your store.\n\n"
-                    f"**Opportunity ({top_o.get('type')}):**\n"
-                    f"{top_o.get('reason')}\n\n"
-                    f"**Recommendation:**\n"
-                    f"Review the suggested decision in your Decisions dashboard to execute with one tap."
-                )
-                action = top_o.get("type")
-            else:
-                resp = (
-                    f"💡 **Business Growth Overview**\n\n"
-                    f"Your store is operating normally. Keep monitoring peak evening hours for surge opportunities."
-                )
-                action = None
-            return ChatResponse(
-                merchant_id=merchant_id,
-                response=resp,
-                supporting_data={"opportunities_count": len(opps)},
-                suggested_action=action
-            )
-
-        # 7. Financial & Working Capital Inquiries
-        elif "loan" in msg or "capital" in msg or "financing" in msg or "credit" in msg or "financial" in msg or "funds" in msg:
-            from app.financial.recommendation_service import FinancialRecommendationService
-            fin_svc = FinancialRecommendationService(self.db)
-            opp = fin_svc.get_merchant_opportunities(merchant_id)
-            if opp.opportunity_detected and opp.recommendation:
-                rec = opp.recommendation
-                resp = (
-                    f"💰 **Working Capital Opportunity**\n\n"
-                    f"**Insight:**\n"
-                    f"Paytm Pulse identified a simulated working-capital opportunity based on your store's UPI sales velocity.\n\n"
-                    f"**Details:**\n"
-                    f"• Opportunity: **{rec.title}**\n"
-                    f"• Simulated amount: **up to ₹{rec.simulated_amount:,.2f}** for **{rec.duration_days} days**\n"
-                    f"• Reason: {rec.reason}\n\n"
-                    f"**Recommendation:**\n"
-                    f"Review working capital parameters in your Financial Services tab."
-                )
-                return ChatResponse(
-                    merchant_id=merchant_id,
-                    response=resp,
-                    supporting_data={"financial_opportunity": rec.model_dump(mode="json") if hasattr(rec, "model_dump") else {}},
-                    suggested_action="VIEW_FINANCIAL_DETAILS"
-                )
-            else:
-                return ChatResponse(
-                    merchant_id=merchant_id,
-                    response="Paytm Pulse monitors your daily UPI sales volume to identify pre-qualified working capital opportunities. Currently, your store profile is healthy and active.",
-                    supporting_data={},
-                    suggested_action=None
-                )
-
-        # 8. Action Outcomes & Closed-Loop Measurement
-        elif "outcome" in msg or "did it work" in msg or "happened" in msg or "restocked" in msg:
-            from app.outcomes.service import OutcomeService
-            outcome_svc = OutcomeService(self.db)
-            recent_outcomes = outcome_svc.get_merchant_outcomes(merchant_id, limit=3)
-            if recent_outcomes:
-                latest = recent_outcomes[0]
-                rev_str = f"₹{latest.revenue_change:,.2f}" if latest.revenue_change is not None else "₹0"
-                if latest.stockout_prevented:
-                    resp = (
-                        f"📈 **Closed-Loop Action Outcome**\n\n"
-                        f"**Status:** Restock action successfully executed.\n\n"
-                        f"**Measured Impact:**\n"
-                        f"• Stockout successfully prevented\n"
-                        f"• Observed revenue change: **{rev_str}**\n"
-                        f"• Impact classification: **{latest.impact}**"
-                    )
-                elif latest.customers_recovered > 0:
-                    resp = (
-                        f"📈 **Closed-Loop Action Outcome**\n\n"
-                        f"**Status:** Win-back campaign completed.\n\n"
-                        f"**Measured Impact:**\n"
-                        f"• Recovered customers: **{latest.customers_recovered} shoppers**\n"
-                        f"• Generated revenue: **{rev_str}**\n"
-                        f"• Impact classification: **{latest.impact}**"
-                    )
-                else:
-                    resp = (
-                        f"📈 **Closed-Loop Action Outcome**\n\n"
-                        f"• Observed revenue change: **{rev_str}**\n"
-                        f"• Impact classification: **{latest.impact}**"
-                    )
-                return ChatResponse(
-                    merchant_id=merchant_id,
-                    response=resp,
-                    supporting_data={"latest_outcome": latest.model_dump(mode="json") if hasattr(latest, "model_dump") else {}},
-                    suggested_action=None
-                )
-            else:
-                return ChatResponse(
-                    merchant_id=merchant_id,
-                    response="The decision was executed. Paytm Pulse is currently collecting post-action sales telemetry to measure business impact.",
-                    supporting_data={},
-                    suggested_action=None
-                )
-
-        # 9. Feedback & Recommendation Accuracy
-        elif "feedback" in msg or "accuracy" in msg or "success rate" in msg:
-            from app.feedback.service import FeedbackService
-            fb_svc = FeedbackService(self.db)
-            summary = fb_svc.get_merchant_summary(merchant_id)
-            if summary.total_recommendations > 0:
-                resp = (
-                    f"🎯 **Pulse Intelligence Performance**\n\n"
-                    f"• Total recommendations generated: **{summary.total_recommendations}**\n"
-                    f"• Merchant approval rate: **{summary.approval_rate * 100:.1f}%** ({summary.total_approved} approved)\n"
-                    f"• Action success rate: **{summary.success_rate * 100:.1f}%** across {summary.total_measured} measured actions\n"
-                    f"• Net verified revenue change: **₹{summary.net_revenue_change:,.2f}**"
-                )
-            else:
-                resp = "Paytm Pulse recommendation tracking is active. As recommendations are reviewed and executed, accuracy metrics appear here."
-            return ChatResponse(
-                merchant_id=merchant_id,
-                response=resp,
-                supporting_data={"feedback_summary": summary.model_dump(mode="json") if hasattr(summary, "model_dump") else {}},
-                suggested_action=None
-            )
-
-        # 10. Default General Welcome
+        if at_risk_count > 0:
+            top_risk = at_risk_list[0].get("product_name", "Essential item")
+            bullet_points.append(f"• **Inventory Alert:** {at_risk_count} item(s) low on stock (e.g., {top_risk})")
         else:
-            sales_data = get_sales_analysis(merchant_id, db=self.db)
-            avg_s = sales_data.get("average_daily_sales", 0.0)
-            resp = (
-                f"Namaste! I am your Paytm Pulse AI Business Partner for **{shop_name}**.\n\n"
-                f"Your store maintains an average daily sales baseline of **₹{avg_s:,.2f}**.\n\n"
-                f"You can ask me to:\n"
-                f"• Analyze evening sales opportunities\n"
-                f"• Check items at risk of running out\n"
-                f"• Identify at-risk customers for re-engagement\n"
-                f"• Show top-selling products this week"
-            )
-            return ChatResponse(
-                merchant_id=merchant_id,
-                response=resp,
-                supporting_data={"average_daily_sales": avg_s},
-                suggested_action=None
-            )
+            bullet_points.append("• **Inventory:** Stock levels are healthy across catalog items")
+
+        if at_risk_cust > 0:
+            bullet_points.append(f"• **Customer Intelligence:** {at_risk_cust} regular shoppers inactive in the last 14+ days")
+
+        if opps:
+            bullet_points.append(f"• **Active Opportunity:** {opps[0].get('reason', 'High evening demand detected')}")
+
+        bullets_text = "\n".join(bullet_points)
+
+        # Dynamic suggested action
+        if at_risk_count > 0:
+            suggested_action = "RESTOCK"
+            rec_text = "Prioritize restocking low-inventory items to avoid lost sales during upcoming peak hours."
+        elif opps:
+            suggested_action = opps[0].get("type", "LAUNCH_PROMOTION")
+            rec_text = opps[0].get("action_type", "Review recommended promotional actions in your Decisions tab.")
+        elif at_risk_cust > 0:
+            suggested_action = "CUSTOMER_WINBACK"
+            rec_text = "Launch a WhatsApp loyalty win-back offer to re-engage inactive customers."
+        else:
+            suggested_action = "MONITOR"
+            rec_text = "Store is performing steadily. Continue monitoring peak evening transaction velocity."
+
+        response_text = (
+            f"📊 **Store Intelligence Overview for {shop_name}**\n\n"
+            f"{bullets_text}\n\n"
+            f"**Recommended Action:**\n"
+            f"{rec_text}"
+        )
+
+        return ChatResponse(
+            merchant_id=merchant_id,
+            response=response_text,
+            supporting_data={
+                "today_sales": today_s,
+                "average_daily_sales": avg_s,
+                "at_risk_stock_count": at_risk_count,
+                "at_risk_customers": at_risk_cust,
+                "opportunities_count": len(opps)
+            },
+            suggested_action=suggested_action
+        )
+

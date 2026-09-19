@@ -126,14 +126,29 @@ BLOCKED_PATTERNS = [
     r"(how\s+to\s+cure|prescribe\s+medicine|treatment\s+for\s+cancer|fever\s+tablet|heavy\s+fever)",
     r"(legal\s+advice|filing\s+a\s+lawsuit|how\s+to\s+sue\s+someone)",
     
-    # 5. Math Homework & General Academic questions
-    r"(solve\s+(the\s+equation|integral|derivative|calculus))",
+    # 5. Math Homework, Arithmetic & General Academic questions
+    r"(solve\s+(the\s+equation|integral|derivative|calculus|\d+|[a-z]))",
     r"(\bderivative\s+of\b|\bintegral\s+of\b|\bsin\^2\s*\+\s*cos\^2\b)",
+    r"(what\s+is\s+[a-z0-9]\s*[\+\-\*\/]\s*[a-z0-9])",
+    r"(what\s+is\s+\d+\s*[\+\-\*\/]\s*\d+)",
+    r"(calculate\s+[\d\+\-\*\/\^\(\)\s]+)",
+    r"^[a-zA-Z0-9\s]*[\+\-\*\/=][a-zA-Z0-9\s]*$",
+    r"\b(pythagoras|algebra|geometry|trigonometry|quadratic\s+equation)\b",
     
     # 6. Celebrity / Entertainment Gossip
-    r"(who\s+is\s+(salman|shahrukh|virat|messi|ronaldo|taylor\s+swift))",
+    r"(who\s+is\s+(salman|shahrukh|virat|messi|ronaldo|taylor\s+swift|dhoni|kohli))",
     r"(movie\s+review\s+of|watch\s+free\s+movies)"
 ]
+
+# Explicit allowed short conversational phrases
+ALLOWED_SHORT_CONVERSATION = {
+    "hi", "hello", "hey", "namaste", "namaskar", "vanakkam", "namaskara",
+    "ok", "okay", "yes", "no", "haan", "ha", "nahi", "sure", "yep", "done",
+    "thanks", "thank you", "dhanyawad", "shukriya", "nandri", "dhanyavadagalu",
+    "help", "status", "summary", "daily brief", "insights", "actions", "details",
+    "tell me more", "how much", "what to do", "kya karein", "yen madodu", "recommendations",
+    "good morning", "good evening", "good afternoon"
+}
 
 
 def check_guardrails(query: str, language: str = "en") -> Tuple[bool, Optional[str], Optional[str]]:
@@ -151,7 +166,7 @@ def check_guardrails(query: str, language: str = "en") -> Tuple[bool, Optional[s
     lang_key = (language or "en").lower()[:2]
     refusal_text = REFUSAL_MESSAGES.get(lang_key, REFUSAL_MESSAGES["en"])
 
-    # 1. Check for explicitly blocked topics (Jailbreaks, Coding, Trivia, Politics, Medical, etc.)
+    # 1. Check for explicitly blocked topics (Jailbreaks, Coding, Math, Trivia, Politics, Medical, etc.)
     for pattern in BLOCKED_PATTERNS:
         if re.search(pattern, lower_query, re.IGNORECASE):
             logger.warning(f"Guardrail triggered for query: '{cleaned[:60]}' | Pattern: {pattern}")
@@ -164,21 +179,32 @@ def check_guardrails(query: str, language: str = "en") -> Tuple[bool, Optional[s
         if re.search(pattern, lower_query, re.IGNORECASE):
             return True, None, None
 
-    # 3. For short conversational inputs (e.g. "haan", "ok", "yes", "tell me more", "how much")
-    if len(cleaned.split()) <= 4:
+    # 3. Check allowed short conversational keywords/confirmations
+    if lower_query in ALLOWED_SHORT_CONVERSATION:
         return True, None, None
 
-    # 4. If query is a general knowledge question starting with what/who/how/why/write without business terms
+    # 4. If query is a general question or arithmetic without business terms, block as off-topic
     general_question_markers = [
         r"^who\s+(is|was|are|were)",
+        r"^what\s+(is|was|are|were)",
+        r"^where\s+(is|was|are|were)",
+        r"^why\s+(is|was|are|were|do|does|did)",
+        r"^how\s+to\s+(cook|make|build|drive|fly|learn|sing|dance)",
         r"^write\s+(a|an|me)?",
-        r"^explain\s+(quantum|relativity|photosynthesis|black\s+hole|history)",
-        r"^tell\s+me\s+about\s+(the\s+universe|aliens|dinosaurs|movies|hollywood|bollywood)"
+        r"^solve\s+",
+        r"^explain\s+(quantum|relativity|photosynthesis|black\s+hole|history|physics|chemistry)",
+        r"^tell\s+me\s+about\s+(the\s+universe|aliens|dinosaurs|movies|hollywood|bollywood|sports)"
     ]
     for g_pat in general_question_markers:
         if re.search(g_pat, lower_query, re.IGNORECASE):
             logger.warning(f"Guardrail triggered for generic non-business question: '{cleaned[:60]}'")
             return False, refusal_text, "OFF_TOPIC"
 
-    # By default, allow borderline merchant questions to let the Gemini prompt guidelines handle them
+    # 5. For arbitrary math expressions (e.g. "a+b", "10 + 20", "x * y")
+    if re.search(r"[\+\-\*\/\^=]", lower_query):
+        logger.warning(f"Guardrail triggered for math expression: '{cleaned[:60]}'")
+        return False, refusal_text, "OFF_TOPIC"
+
+    # Default to allow if it appears store-related or ambiguous
     return True, None, None
+

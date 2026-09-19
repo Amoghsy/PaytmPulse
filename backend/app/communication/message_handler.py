@@ -381,7 +381,9 @@ class MessageHandler:
         parsed: ParsedInboundMessage
     ) -> Dict[str, Any]:
         """
-        Handles plain text merchant queries: Conversation Context + Natural Language Task Execution + Gemini ADK Agent -> WhatsApp Text Reply.
+        Routes all text queries directly to the Google ADK / Gemini AI Agent.
+        The AI Agent reasons over store context, applies domain guardrails, calls telemetry tools,
+        and formulates the conversational response dynamically.
         """
         cleaned_text = text_content.strip()
         if not cleaned_text:
@@ -395,166 +397,7 @@ class MessageHandler:
             external_id=parsed.message_id
         )
 
-        lower_msg = cleaned_text.lower().strip()
-        lang_str = str(merchant.language or merchant.preferred_language or "en").lower()
-
-        # 1. Check explicit Help / Command requests
-        if lower_msg in ("help", "commands", "madat", "sahayate", "ಸಹಾಯ"):
-            if "kn" in lang_str or "kannada" in lang_str:
-                help_msg = (
-                    f"👋 *{merchant.shop_name} ಗಾಗಿ ಪೇಟಿಎಂ ಪಲ್ಸ್ ಸಹಾಯಕ*\n\n"
-                    f"ನೀವು ಯಾವುದೇ ಅಲರ್ಟ್‌ಗೆ ನೇರವಾಗಿ ಉತ್ತರಿಸಬಹುದು ಅಥವಾ ಕನ್ನಡ, ಹಿಂದಿ ಅಥವಾ ಇಂಗ್ಲಿಷ್‌ನಲ್ಲಿ ಪ್ರಶ್ನೆಗಳನ್ನು ಕೇಳಬಹುದು!\n\n"
-                    f"💡 *ನೀವು ಏನು ಮಾಡಬಹುದು:*\n"
-                    f"• _'ಹೌದು, ಅನುಮೋದಿಸಿ'_ ಅಥವಾ _'ಆರ್ಡರ್ ಮಾಡು'_ (ಶಿಫಾರಸನ್ನು ಸಕ್ರಿಯಗೊಳಿಸಲು)\n"
-                    f"• _'ಇಂದಿನ ಮಾರಾಟ ಹೇಗಿದೆ?'_\n"
-                    f"• _'ಯಾವ ವಸ್ತು ತೀರಿಹೋಗುತ್ತಿದೆ?'_\n"
-                    f"• _'ಬಾಕಿ ಉಳಿದ ಶಿಫಾರಸುಗಳನ್ನು ತೋರಿಸು'_\n"
-                )
-            else:
-                help_msg = (
-                    f"👋 *Paytm Pulse Assistant for {merchant.shop_name}*\n\n"
-                    f"You can reply directly to any alert or ask questions in English, Hindi, or Kannada!\n\n"
-                    f"💡 *What you can say:*\n"
-                    f"• _'Yes, approve it'_ or _'Haan kardo'_ (to execute latest alert)\n"
-                    f"• _'How are my sales today?'_\n"
-                    f"• _'Which product is running low on stock?'_\n"
-                    f"• _'Show my pending recommendations'_\n"
-                )
-            whatsapp_client.send_text_message(recipient_phone=merchant.phone, text=help_msg)
-            return {"status": "HELP_REPLIED", "response_text": help_msg}
-
-        # 2. Check Pending Alerts Inquiry
-        if lower_msg in ("recommendations", "nba", "pending", "alerts", "suggestions", "ಶಿಫಾರಸು", "ಶಿಫಾರಸುಗಳು"):
-            pending = self.decision_engine.get_pending_decisions(merchant.id)
-            if not pending:
-                msg = "✅ You have no pending recommendations right now. Your store operations are running smoothly!"
-                if "kn" in lang_str or "kannada" in lang_str:
-                    msg = "✅ ಪ್ರಸ್ತುತ ಯಾವುದೇ ಬಾಕಿ ಶಿಫಾರಸುಗಳಿಲ್ಲ. ನಿಮ್ಮ ಅಂಗಡಿಯ ಕಾರ್ಯಾಚರಣೆ ಸುಗಮವಾಗಿದೆ!"
-                whatsapp_client.send_text_message(recipient_phone=merchant.phone, text=msg)
-                return {"status": "NO_PENDING", "response_text": msg}
-            else:
-                top_rec = pending[0]
-                rec_model = self.db.query(Recommendation).filter(Recommendation.id == top_rec.recommendation_id).first()
-                if rec_model:
-                    self.notifications.send_recommendation_alert(merchant, rec_model, bypass_cooldown=True)
-                    return {"status": "PENDING_NBA_SENT", "decision_id": top_rec.recommendation_id}
-
-        # 3. Multilingual Natural Language Intent: APPROVAL
-        approval_keywords = [
-            "approve", "yes", "confirm", "proceed", "haan", "ha", "ok", "sure",
-            "do it", "kar do", "kardo", "order kar do", "order kardo", "reorder",
-            "agree", "thik hai", "theek hai", "accept", "yes please", "place order",
-            "ಅನುಮೋದಿಸಿ", "ಅನುಮೋದಿಸು", "ಹೌದು", "ಮಾಡು", "ಮಾಡಿ", "ಆರ್ಡರ್ ಮಾಡು", "ಆರ್ಡರ್ ಮಾಡಿ",
-            "ಖಂಡಿತ", "ಸರಿ", "ಹಾ", "ಮಾಡಪ್ಪ", "ಆಯ್ತು", "ಹೂಂ", "ಮಾಡಬಹುದು",
-            "हाँ", "हां", "करो", "कर दो", "स्वीकार", "ऑर्डर करो", "ठीक है", "होय", "करा", "मंजूर"
-        ]
-        is_approval = any(re.search(rf"(?:^|\s){re.escape(kw)}(?:$|\s)", lower_msg) or kw in lower_msg for kw in approval_keywords)
-
-        negative_keywords = ["don't", "dont", "not", "no", "nahi", "reject", "ಬೇಡ", "ಮಾಡಬೇಡ", "ಅಲ್ಲ", "ತಿರಸ್ಕರಿಸಿ", "मत", "ना"]
-        has_negation = any(neg in lower_msg for neg in negative_keywords)
-
-        if is_approval and not has_negation:
-            pending_list = self.decision_engine.get_pending_decisions(merchant.id)
-            if pending_list:
-                target_decision = pending_list[0]
-                rec_id = target_decision.recommendation_id
-                
-                # Execute approval
-                self.decision_engine.approve_decision(rec_id)
-                
-                # Auto-execute action in the database / adapter
-                exec_id = f"EXEC_{rec_id[:6].upper()}"
-                try:
-                    from app.execution.engine import ExecutionEngine
-                    from app.models.action import Action
-                    exec_engine = ExecutionEngine(self.db)
-                    act = self.db.query(Action).filter(Action.recommendation_id == rec_id).first()
-                    if act:
-                        exec_res = exec_engine.execute_action(act.id)
-                        exec_id = exec_res.execution_id or exec_id
-                except Exception as ex_err:
-                    logger.warning(f"Error executing action on natural language approval: {ex_err}")
-
-                if "kn" in lang_str or "kannada" in lang_str:
-                    confirmation_msg = (
-                        f"✅ *ಕಾರ್ಯವನ್ನು ಯಶಸ್ವಿಯಾಗಿ ಕಾರ್ಯಗತಗೊಳಿಸಲಾಗಿದೆ!*\n\n"
-                        f"ನಿಮ್ಮ ಅಂಗಡಿಗಾಗಿ *'{target_decision.title}'* ಅನ್ನು ಅನುಮೋದಿಸಿ ಸಕ್ರಿಯಗೊಳಿಸಲಾಗಿದೆ.\n"
-                        f"ರೆಫರೆನ್ಸ್ ಐಡಿ: `{exec_id}`\n\n"
-                        f"ರಿಯಲ್-ಟೈಮ್‌ನಲ್ಲಿ ಇನ್ವೆಂಟರಿ ಮತ್ತು ಮಾರಾಟದ ಟೆಲಿಮೆಟ್ರಿ ನವೀಕರಿಸಲಾಗಿದೆ."
-                    )
-                elif "hi" in lang_str or "hindi" in lang_str:
-                    confirmation_msg = (
-                        f"✅ *कार्य सफलतापूर्वक निष्पादित किया गया!*\n\n"
-                        f"आपकी दुकान के लिए *'{target_decision.title}'* को स्वीकृत और सक्रिय कर दिया गया है।\n"
-                        f"संदर्भ संख्या: `{exec_id}`\n\n"
-                        f"इन्वेंट्री और स्टोर टेलीमेट्री रीयल-टाइम में अपडेट कर दी गई है।"
-                    )
-                else:
-                    confirmation_msg = (
-                        f"✅ *Task Executed Successfully!*\n\n"
-                        f"I have approved and processed *'{target_decision.title}'* for your store.\n"
-                        f"Reference ID: `{exec_id}`\n\n"
-                        f"Your inventory and store telemetry have been updated in real-time."
-                    )
-
-                whatsapp_client.send_text_message(recipient_phone=merchant.phone, text=confirmation_msg)
-
-                self.notifications._log_message(
-                    merchant_id=merchant.id,
-                    direction=MessageDirection.OUTBOUND,
-                    msg_type=MessageType.TEXT,
-                    content=confirmation_msg,
-                    recipient_phone=merchant.phone,
-                    language=merchant.language
-                )
-
-                return {
-                    "status": "APPROVED_AND_EXECUTED_VIA_NL",
-                    "merchant_id": merchant.id,
-                    "decision_id": rec_id,
-                    "response_text": confirmation_msg,
-                    "action_title": target_decision.title
-                }
-
-        # 4. Multilingual Natural Language Intent: REJECTION / DISMISSAL
-        rejection_keywords = [
-            "reject", "dismiss", "cancel", "nahi", "no", "don't do it", "ignore", "not now", "mat karo",
-            "ತಿರಸ್ಕರಿಸಿ", "ತಿರಸ್ಕರಿಸು", "ಬೇಡ", "ರದ್ದುಮಾಡು", "ರದ್ದು", "ಮಾಡಬೇಡ", "ಅಲ್ಲ",
-            "नहीं", "मत करो", "रद्द", "नको", "अस्वीकार"
-        ]
-        is_rejection = any(re.search(rf"(?:^|\s){re.escape(kw)}(?:$|\s)", lower_msg) or kw in lower_msg for kw in rejection_keywords)
-
-        if is_rejection:
-            pending_list = self.decision_engine.get_pending_decisions(merchant.id)
-            if pending_list:
-                target_decision = pending_list[0]
-                self.decision_engine.reject_decision(target_decision.recommendation_id)
-                if "kn" in lang_str or "kannada" in lang_str:
-                    reject_msg = f"ℹ️ ಅರ್ಥವಾಯಿತು. ನಿಮ್ಮ ಅಂಗಡಿಯ *'{target_decision.title}'* ಶಿಫಾರಸನ್ನು ತಿರಸ್ಕರಿಸಲಾಗಿದೆ."
-                elif "hi" in lang_str or "hindi" in lang_str:
-                    reject_msg = f"ℹ️ समझ गया। *'{target_decision.title}'* सुझाव को खारिज कर दिया गया है।"
-                else:
-                    reject_msg = f"ℹ️ Understood. I have dismissed the recommendation *'{target_decision.title}'*."
-
-                whatsapp_client.send_text_message(recipient_phone=merchant.phone, text=reject_msg)
-                return {
-                    "status": "REJECTED_VIA_NL",
-                    "merchant_id": merchant.id,
-                    "decision_id": target_decision.recommendation_id,
-                    "response_text": reject_msg
-                }
-
-        # 5. Multilingual Natural Language Intent: DETAILS
-        details_keywords = ["details", "detail", "info", "more info", "explain", "ವಿವರಗಳು", "ವಿವರ", "ಮಾಹಿತಿ", "विवरण", "डिटेल्स"]
-        if any(kw in lower_msg for kw in details_keywords):
-            pending_list = self.decision_engine.get_pending_decisions(merchant.id)
-            if pending_list:
-                target_decision = pending_list[0]
-                rec = self.db.query(Recommendation).filter(Recommendation.id == target_decision.recommendation_id).first()
-                if rec:
-                    return self._handle_button_action(merchant, f"DETAILS_{rec.id}", parsed)
-
-        # 6. Run Gemini ADK Agent for reasoning and task responses (with target language)
+        # 1. Run Google ADK AI Agent directly for all conversation and reasoning
         agent_resp = self.agent_runner.run_chat(
             merchant_id=merchant.id,
             message=cleaned_text,
@@ -562,7 +405,7 @@ class MessageHandler:
         )
         response_text = agent_resp.response
 
-        # Update Redis conversation context
+        # 2. Update Redis conversation context
         ConversationManager.add_interaction(
             merchant_id=merchant.id,
             user_message=cleaned_text,
@@ -570,7 +413,7 @@ class MessageHandler:
             topic=agent_resp.suggested_action
         )
 
-        # Send response to WhatsApp
+        # 3. Deliver AI Agent response to WhatsApp
         target_phone = parsed.sender_phone or merchant.phone
         whatsapp_client.send_text_message(recipient_phone=target_phone, text=response_text)
 
