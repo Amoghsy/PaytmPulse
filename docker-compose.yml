@@ -1,0 +1,95 @@
+services:
+  # Redis Cache & Real-time State Service
+  redis:
+    image: redis:7-alpine
+    container_name: paytm_pulse_redis
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - paytm_pulse_network
+
+  # n8n Workflow Automation Engine (Self-Hosted)
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: paytm_pulse_n8n
+    restart: always
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      - N8N_PORT=5678
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_HOST=localhost
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Asia/Kolkata
+      - TZ=Asia/Kolkata
+      - N8N_DEFAULT_BINARY_DATA_MODE=default
+      - N8N_SECURE_COOKIE=false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - paytm_pulse_network
+
+  # FastAPI Backend Service (Using Supabase Database)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: paytm_pulse_backend
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+    volumes:
+      - ./backend:/app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - paytm_pulse_network
+
+  # React Frontend Dashboard
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: paytm_pulse_frontend
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - paytm_pulse_network
+
+volumes:
+  redis_data:
+    name: paytm_pulse_redis_data
+  n8n_data:
+    name: paytm_pulse_n8n_data
+
+networks:
+  paytm_pulse_network:
+    name: paytm_pulse_network
+    driver: bridge

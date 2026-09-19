@@ -1,0 +1,101 @@
+/* Paytm Pulse - Design Tokens (Paytm Light Merchant Design Language) */
+:root {
+  /* Brand Colors */
+  --color-paytm-navy: #002E6E;
+  --color-paytm-navy-dark: #001f4d;
+  --color-paytm-navy-light: #0A3D8F;
+  --color-paytm-cyan: #00B9F5;
+  --color-paytm-cyan-hover: #009fd4;
+  --color-paytm-cyan-dark: #0084B4;
+  --color-paytm-cyan-tint: #E8F6FD;
+  --color-paytm-cyan-light: #F0F9FE;
+
+  /* Neutrals & Surfaces (100% Light Mode Only) */
+  --color-bg-page: #F5F7FA;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-subtle: #F8FAFC;
+  --color-bg-hover: #F0F4F8;
+  --color-bg-active: #E6EEF7;
+
+  /* Borders & Dividers */
+  --color-border: #E6ECF2;
+  --color-border-subtle: #F0F4F8;
+  --color-border-hover: #D0DCE7;
+  --color-border-active: #00B9F5;
+
+  /* Typography Colors */
+  --color-text-primary: #0F1B2D;
+  --color-text-secondary: #5B6B7F;
+  --color-text-muted: #8E9CAE;
+  --color-text-inverse: #FFFFFF;
+  --color-text-brand: #002E6E;
+  --color-text-cyan: #0084B4;
+
+  /* Feedback & Semantic Colors */
+  --color-success: #21C17A;
+  --color-success-dark: #199A60;
+  --color-success-tint: #E9F9F1;
+  --color-success-border: #BAE8D1;
+
+  --color-warning: #F5A623;
+  --color-warning-dark: #D4890B;
+  --color-warning-tint: #FEF6E9;
+  --color-warning-border: #FCDFB0;
+
+  --color-danger: #F0475B;
+  --color-danger-dark: #D4283D;
+  --color-danger-tint: #FDECEE;
+  --color-danger-border: #F9BFC6;
+
+  --color-info: #00B9F5;
+  --color-info-tint: #E8F6FD;
+  --color-info-border: #B3E8FC;
+
+  /* Spacing Grid (8px based) */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-40: 40px;
+  --space-48: 48px;
+
+  /* Border Radius */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows (Soft & Subtle, No Glow) */
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.03);
+  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.06), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
+  --shadow-lg: 0 12px 16px -4px rgba(16, 24, 40, 0.08), 0 4px 6px -2px rgba(16, 24, 40, 0.03);
+  --shadow-popover: 0 10px 25px -5px rgba(0, 46, 110, 0.12), 0 8px 10px -6px rgba(0, 46, 110, 0.06);
+
+  /* Typography */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 15px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 22px;
+  --font-size-3xl: 28px;
+
+  /* Layout */
+  --header-height: 64px;
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 72px;
+  --max-content-width: 1440px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}

@@ -1,0 +1,204 @@
+/* ==========================================================================
+   Paytm Pulse - Authentic Light Merchant Dashboard Layout
+   Clean, Trustworthy, 100% Light Mode Only
+   ========================================================================== */
+
+.app-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--page-bg);
+  color: var(--text-primary);
+}
+
+.main-wrapper {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-height: calc(100vh - 64px);
+  position: relative;
+}
+
+/* Sidebar Styles */
+.app-sidebar {
+  width: 240px;
+  min-width: 240px;
+  flex-shrink: 0;
+  height: calc(100vh - 64px);
+  position: sticky;
+  top: 64px;
+  background-color: #FFFFFF;
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow-y: auto;
+  z-index: 40;
+}
+
+/* Content Area */
+.content-area {
+  flex: 1;
+  min-width: 0;
+  padding: 24px 32px;
+  background-color: var(--page-bg);
+}
+
+.page-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Header Elements */
+.mobile-hamburger-btn {
+  display: none !important;
+}
+
+/* Responsive Grid Utilities */
+.grid {
+  display: grid;
+  gap: 20px;
+}
+
+.grid-12 {
+  grid-template-columns: repeat(12, 1fr);
+}
+
+.col-12 {
+  grid-column: span 12;
+}
+
+.col-8 {
+  grid-column: span 8;
+}
+
+.col-7 {
+  grid-column: span 7;
+}
+
+.col-6 {
+  grid-column: span 6;
+}
+
+.col-5 {
+  grid-column: span 5;
+}
+
+.col-4 {
+  grid-column: span 4;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1200px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .col-8,
+  .col-4 {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 1024px) {
+  .content-area {
+    padding: 20px 16px;
+  }
+
+  .col-6 {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-hamburger-btn {
+    display: flex !important;
+  }
+
+  .header-search-container {
+    display: none;
+  }
+
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 1000;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+
+  .app-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .content-area {
+    padding: 16px 12px;
+  }
+
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Light Table Overrides */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  background-color: var(--page-bg);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: left;
+}
+
+td {
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Custom Scrollbar for all views */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--page-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
