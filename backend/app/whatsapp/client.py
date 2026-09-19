@@ -50,6 +50,9 @@ class WhatsAppClient:
         phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip() or self._phone_number_id or ""
         version = os.getenv("WHATSAPP_API_VERSION", "").strip() or self._api_version or "v25.0"
         
+        env_mock = os.getenv("WHATSAPP_MOCK_MODE", "false").strip().lower() in ("true", "1", "yes")
+        has_creds = bool(token and phone_id and len(token) > 20)
+        
         if self._mock_mode is not None:
             is_mock = self._mock_mode
         else:
